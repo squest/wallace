@@ -1,14 +1,13 @@
 # wallace
 
-A Clojure library designed to ... well, that part is up to you.
+An attempt to create a graph-like behaviour out of couchbase, built on top of couchbase-clj.
 
 ## Usage
 
-FIXME
+Not yet registered into clojar
 
 ## License
 
-Copyright © 2014 FIXME
+Copyright © 2014 PT Zenius Education
 
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
+Distributed under the Eclipse Public License either version 1.0 or any later version, basically same as clojure.
