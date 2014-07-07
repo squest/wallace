@@ -16,8 +16,7 @@
 				(cbkey :keypot))
 
 (expect true
-				(do (set-ntype! mdb "user")
-						(ntype? mdb "user")))
+				(ntype? mdb "user"))
 
 (expect [1 2 3 4]
 				(set-conj [1 2 3] 4))
@@ -33,36 +32,97 @@
 (expect {:name "popok"}
 				(:data test-one))
 
-(expect (:eid test-one)
-				(:user (cc/get-json mdb :eid-generator)))
-
 (def last-user-eid (:user (cc/get-json mdb :eid-generator)))
 
 (def last-user (get-node mdb last-user-eid "user"))
 
 (expect last-user
-				(last (all-nodes mdb "user")))
+				(first (all-nodes mdb "user")))
 
 (def test-two (get-node mdb 5 "user"))
 
 (expect {:name "pasukan"}
 				(:data (last (all-nodes mdb "user"))))
 
-(expect 5
+(expect 8
 				(get-eid mdb "user"))
 
-(def test-three (add-node! mdb "user" {:name "jojoba"}))
+(def test-three (get-node mdb 8 "user" ))
 
-(expect 5
+(expect 8
 				(:eid test-three))
 
 (expect (:uuid test-three)
-				(get-ntype-uuid mdb (:eid test-three) "user"))
+				(get-node-uuid mdb (:eid test-three) "user"))
 
 (expect {:name "jojoba"}
 				(:data test-three))
 
-(delete-node! mdb (get-ntype-uuid mdb (:eid test-three) "user"))
+(expect true
+				(ntype? mdb "user"))
+
+(expect true
+				(ntype? mdb :user))
+
+(expect false
+				(ntype? mdb "momoka"))
+
+(expect false
+				(ntype? mdb :momogi))
+
+(expect (:user (cc/get-json mdb :eid-generator))
+				(get-eid mdb "user"))
+
+(expect (:user (cc/get-json mdb :eid-generator))
+				(get-eid mdb :user))
+
+(expect (dissoc (cc/get-json mdb
+														 (:user (cc/get-json mdb
+																								 :ntype-lookup)))
+								:gtype)
+				(lookup-ntype mdb "user"))
+
+(expect (all-nodes-uuid mdb :user)
+				(all-nodes-uuid mdb "user"))
+
+(expect (all-nodes mdb :user)
+				(all-nodes mdb "user"))
+
+(expect (get-node-uuid mdb 8 "user")
+				(node-uuid mdb {:eid 8 :ntype "user"}))
+
+(expect (:rels (get-node mdb 8 "user"))
+				(:rels (get-node mdb (get-node-uuid mdb 8 "user"))))
+
+(def test-node-01 (add-node! mdb "user" {:name "poposal" :resta "thisthat"}))
+(def test-node-02 (add-node! mdb "user" {:name "jojojo" :resta "thisthat"}))
+(def test-rel-01 (relate! mdb
+													{:uuid (:uuid test-node-01)}
+													"likes"
+													{:uuid (:uuid test-node-02)}
+													{:timestamp "paspasan"}))
+
+(expect test-rel-01
+				(cc/get-json mdb
+										 (:uuid test-rel-01)))
+
+(expect (get-node-uuid mdb
+											 (:eid test-node-02)
+											 "user")
+				(delete-node! mdb
+											(:eid test-node-02)
+											"user"))
+
+(expect (node-uuid mdb
+									 (:eid test-node-01)
+									 (:ntype test-node-01))
+				(delete-node! mdb
+											(:eid test-node-01)
+											(:ntype test-node-01)))
+
+
+
+
 
 
 
