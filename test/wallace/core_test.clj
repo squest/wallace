@@ -28,5 +28,44 @@
 (expect ["jojon" "dodol"]
 				(set-conj ["jojon" "dodol"]  "dodol"))
 
+(def test-one (get-node mdb 4 "user"))
+
+(expect {:name "popok"}
+				(:data test-one))
+
+(expect (:eid test-one)
+				(:user (cc/get-json mdb :eid-generator)))
+
+(def last-user-eid (:user (cc/get-json mdb :eid-generator)))
+
+(def last-user (get-node mdb last-user-eid "user"))
+
+(expect last-user
+				(last (all-nodes mdb "user")))
+
+(def test-two (get-node mdb 5 "user"))
+
+(expect {:name "pasukan"}
+				(:data (last (all-nodes mdb "user"))))
+
+(expect 5
+				(get-eid mdb "user"))
+
+(def test-three (add-node! mdb "user" {:name "jojoba"}))
+
+(expect 5
+				(:eid test-three))
+
+(expect (:uuid test-three)
+				(get-ntype-uuid mdb (:eid test-three) "user"))
+
+(expect {:name "jojoba"}
+				(:data test-three))
+
+(delete-node! mdb (get-ntype-uuid mdb (:eid test-three) "user"))
+
+
+
+
 
 
