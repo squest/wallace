@@ -144,7 +144,10 @@
 	([db uuid]
 	 (cc/get-json db uuid))
 	([db eid ntype]
-	 (get-node db (get-node-uuid db eid (cbkey ntype)))))
+	 (let [uuid (get-node-uuid db eid (cbkey ntype))]
+		 (if (nil? uuid)
+				 nil
+				 (get-node db uuid)))))
 
 (defn all-nodes
 	"Returns all nodes with a particular ntype"
@@ -199,7 +202,8 @@
 	[db data]
 	(let [new-uuid (uuid)]
 		(do (cc/set-json db new-uuid
-										 (merge {:gtype "rel"}
+										 (merge {:gtype "rel"
+														 :uuid new-uuid}
 														data))
 				new-uuid)))
 
@@ -219,6 +223,7 @@
 				final-data (merge (first data)
 													{:start start-uuid
 													 :end end-uuid
+													 :gtype "rel"
 													 :rtype rel-type})
 				new-uuid (add-rel! db final-data)]
 		(do (add-node-rel! db

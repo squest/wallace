@@ -6,6 +6,8 @@
 (defdb mdb {:bucket "wallace"
 					  :uris ["http://127.0.0.1:8091/pools"]})
 
+(def all-nodes-pre (all-nodes mdb "user"))
+
 (expect :123
 				(cbkey 123))
 
@@ -32,24 +34,15 @@
 (expect {:name "popok"}
 				(:data test-one))
 
-(def last-user-eid (:user (cc/get-json mdb :eid-generator)))
-
-(def last-user (get-node mdb last-user-eid "user"))
-
-(expect last-user
-				(first (all-nodes mdb "user")))
-
 (def test-two (get-node mdb 5 "user"))
 
 (expect {:name "pasukan"}
 				(:data (last (all-nodes mdb "user"))))
 
-(expect 8
-				(get-eid mdb "user"))
 
-(def test-three (get-node mdb 8 "user" ))
+(def test-three (get-node mdb 6 "user" ))
 
-(expect 8
+(expect 6
 				(:eid test-three))
 
 (expect (:uuid test-three)
@@ -88,11 +81,13 @@
 (expect (all-nodes mdb :user)
 				(all-nodes mdb "user"))
 
-(expect (get-node-uuid mdb 8 "user")
-				(node-uuid mdb {:eid 8 :ntype "user"}))
+(expect (get-node-uuid mdb 6 "user")
+				(node-uuid mdb {:eid 6 :ntype "user"}))
 
-(expect (:rels (get-node mdb 8 "user"))
-				(:rels (get-node mdb (get-node-uuid mdb 8 "user"))))
+(expect (:rels (get-node mdb 6 "user"))
+				(:rels (get-node mdb (get-node-uuid mdb 6 "user"))))
+
+
 
 (def test-node-01 (add-node! mdb "user" {:name "poposal" :resta "thisthat"}))
 (def test-node-02 (add-node! mdb "user" {:name "jojojo" :resta "thisthat"}))
@@ -114,11 +109,16 @@
 											"user"))
 
 (expect (node-uuid mdb
-									 (:eid test-node-01)
-									 (:ntype test-node-01))
+									 {:eid (:eid test-node-01)
+									  :ntype (:ntype test-node-01)})
 				(delete-node! mdb
 											(:eid test-node-01)
 											(:ntype test-node-01)))
+
+(def all-nodes-post (all-nodes mdb "user"))
+
+(expect (count all-nodes-post)
+				(count all-nodes-pre))
 
 
 
