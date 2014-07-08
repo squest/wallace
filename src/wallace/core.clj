@@ -1,15 +1,15 @@
 (ns wallace.core
   (:require [couchbase-clj.client :as cc]))
 
-(defn uuid
-  "Simple function to generate a string containing a newly generated uuid"
-  []
-  (str (java.util.UUID/randomUUID)))
-
 (defmacro defdb
 	"Simple macro to wrap couchbase-clj defclient, it makes users do not have to add couchbase-clj to deps"
 	[dbname exp]
 	(list 'cc/defclient dbname exp))
+
+(defn uuid
+  "Simple function to generate a string containing a newly generated uuid"
+  []
+  (str (java.util.UUID/randomUUID)))
 
 (defdb cb {:bucket "wallace"
 					 :uris ["http://127.0.0.1:8091/pools"]})
@@ -24,8 +24,8 @@
 (defn create-graph!
 	"Function to initialise db, it creates meta data for the graph"
 	[db]
-	(do (cc/set-json db :eid-generator {:gtype "meta"})
-			(cc/set-json db :ntype-lookup {:gtype "meta"})))
+	(and (cc/set-json db :ntype-lookup {:$gtype "meta"})
+			 (cc/set-json db :rtype-lookup {:$gtype "meta"})))
 
 (defn cbkey
 	"A simple function that either accepts a string or otherwise and convert them into keyword"
@@ -36,226 +36,188 @@
 					(keyword st)
 					(keyword (str st)))))
 
+(defn lookup-type
+	"returns the one of two lookup, gtype either :node or :rel"
+	[db gtype]
+	(if (= :node (cbkey gtype))
+			(cc/get-json db :ntype-lookup)
+			(cc/get-json db :rtype-lookup)))
+
+(defn lookup-nodes
+	"Returns the lookup doc uuid for a particular ntype"
+	[db ntype]
+	((cbkey ntype) (lookup-type db :node)))
+
+(defn lookup-rels
+	"Returns the lookup doc uuid for a particular rtype"
+	[db rtype]
+	((cbkey rtype) (lookup-type db :rel)))
+
+(defn all-nodes
+	"Returns all the nodes uuids for a particular ntype"
+	[db ntype]
+	(let [lookup ((cbkey ntype) (lookup-type db :node))]
+		(if (nil? lookup)
+				nil
+				(cc/get-json db (cbkey lookup)))))
+
+(defn all-rels
+	"Returns all the rels uuids for a particular rtype"
+	[db rtype]
+	(let [lookup ((cbkey rtype) (lookup-type db :rel))]
+		(if (nil? lookup)
+				nil
+				(cc/get-json db (cbkey lookup)))))
+
+(defn- assoc-lookup!
+	[db dbkey somekey somevalue]
+	(let [old-data (lookup-type db (cbkey dbkey))
+				dockey (if (= :node (cbkey dbkey))
+								 	 :ntype-lookup
+									 :rtype-lookup)]
+		(do (cc/set-json db dockey
+										 (assoc old-data
+														somekey
+														somevalue))
+				(assoc old-data
+							 somekey
+							 somevalue))))
+
 (defn- assoc-doc!
-	"A simple assoc function for a specific doc in db with a specific id, it simply assocs whatever data
-	in the db with the supplied key-value pair"
-	[db id some-key some-val]
-	(cc/set-json db id
-							 (assoc (cc/get-json db id)
-								 			some-key
-											some-val)))
+	[db dbkey somekey somevalue]
+	(let [old-doc (cc/get-json db (cbkey dbkey))]
+		(do (cc/set-json db (cbkey dbkey)
+										 (assoc old-doc
+										  			 somekey
+											  		 somevalue))
+				(assoc old-doc
+							 somekey
+							 somevalue))))
 
-(defn- dissoc-doc!
-	"A simple dissoc a key from a doc data obtained from the db"
-	[db cbid some-key]
-	(cc/set-json db cbid
-							 (dissoc (cc/get-json db cbid)
-											 some-key)))
+(defn- merge-doc!
+	[db dbkey data]
+	(let [old-doc (cc/get-json db (cbkey dbkey))]
+		(do (cc/set-json db
+										 (cbkey dbkey)
+										 (merge old-doc
+														data))
+				(merge old-doc
+							 data))))
 
-(defn ntype?
-	"To check whether a certain ntype exist in database"
+(defn- ntype?
 	[db ntype]
-	(contains? (cc/get-json db :ntype-lookup)
-						 (cbkey ntype)))
+	(let [lookup (lookup-type db :node)]
+		(if (contains? lookup (cbkey ntype))
+				true
+				false)))
 
-(defn- set-ntype!
-	"Add a new ntype in graph database"
+(defn- add-ntype!
 	[db ntype]
-	(if (ntype? db (cbkey ntype))
-			{:status false :message "ntype already exists"}
-			(let [new-uuid (uuid)]
-				(do (cc/set-json db (cbkey new-uuid)
-												 {:gtype "lookup"})
-						(assoc-doc! db :eid-generator
-												(cbkey ntype)
-												0)
-						(assoc-doc! db :ntype-lookup
-												(cbkey ntype)
-												new-uuid)))))
+	(if (ntype? db ntype)
+			{:status false :message "ntype already in database"}
+			(let [uuid (uuid)]
+				(do (cc/set-json db (cbkey uuid)
+												 {:$gtype "lookup"})
+						(assoc-lookup! db :node (cbkey ntype) uuid)))))
 
-(defn get-eid
-	[db ntype]
-	((cbkey ntype) (cc/get-json db :eid-generator)))
+(defn- rtype?
+	[db rtype]
+	(let [lookup (lookup-type db :rel)]
+		(if (contains? lookup (cbkey rtype))
+				true
+				false)))
 
-(defn- gen-eid!
-	"Return a usable eid for a particular ntype"
-	[db ntype]
-	(do (when-not (ntype? db ntype)
-								(set-ntype! db (cbkey ntype)))
-			(let [new-eid (inc ((cbkey ntype) (cc/get-json db :eid-generator)))]
-				(do (assoc-doc! db :eid-generator
-												(cbkey ntype)
-												new-eid)
-						new-eid))))
-
-(defn ntype-uuid
-	"Returns the uuid of a particular ntype"
-	[db ntype]
-	((cbkey ntype) (cc/get-json db :ntype-lookup)))
-
-(defn lookup-ntype
-	"Returns the lookup doc for a particular ntype"
-	[db ntype]
-	(let [lookup-id ((cbkey ntype) (cc/get-json db :ntype-lookup))]
-		(if-not (nil? lookup-id)
-						(dissoc (cc/get-json db lookup-id)
-										:gtype)
-						nil)))
-
-(defn all-nodes-uuid
-	[db ntype]
-	(map val (lookup-ntype db ntype)))
-
-(defn get-node-uuid
-	"Returns the uuid of a doc (either node or rel) with supplied eid+ntype"
-	[db eid ntype]
-	(if (ntype? db (cbkey ntype))
-			((cbkey eid) (lookup-ntype db (cbkey ntype)))
-			{:status false :message "ntype is not in database"}))
-
-(defn node-uuid
-	"Get the node-uuid from db based on supplied map that may content eid+ntype"
-	[db {:keys [uuid eid ntype]}]
-	(if (nil? uuid)
-			(get-node-uuid db eid (cbkey ntype))
-			uuid))
+(defn- add-rtype!
+	[db rtype]
+	(if (rtype? rtype)
+			{:status false :message "rtype already in database"}
+			(let [uuid (uuid)]
+				(do (cc/set-json db uuid
+												 {:$gtype "lookup"})
+						(assoc-lookup! db :rel (cbkey rtype) uuid)))))
 
 (defn add-node!
-	"Add a node with ntype as ntype and data"
-	[db ntype data]
-	(let [new-uuid (uuid)
-				new-eid (gen-eid! db ntype)
-				ntype-uuid ((cbkey ntype) (cc/get-json db :ntype-lookup))
-				final-data {:gtype "node"
-										:eid new-eid
-										:ntype ntype
-										:rels []
-										:data data
-										:uuid new-uuid}]
-		(do (assoc-doc! db ntype-uuid
-										(cbkey new-eid)
-										new-uuid)
-				(cc/set-json db new-uuid
+	"Add a node to the db with a specific ntype, data is optional, it would be the property of this node,
+	the data would be merged with meta data map (keywords of these meta-data prefixed with $ sign)"
+	[db ntype & data]
+	(let [uuid (uuid)
+				final-data (merge (first data)
+													{:$gtype "node"
+													 :$rels {}
+													 :$ntype ntype
+													 :$uuid uuid})]
+		(do (add-ntype! db ntype)
+				(assoc-doc! db
+										(lookup-nodes db :node)
+										(cbkey uuid)
+										uuid)
+				(cc/set-json db
+										 (cbkey uuid)
 										 final-data)
 				final-data)))
 
 (defn get-node
-	"Get a node data either by its uuid or eid+ntype combination"
-	([db uuid]
-	 (cc/get-json db uuid))
-	([db eid ntype]
-	 (let [uuid (get-node-uuid db eid (cbkey ntype))]
-		 (if (nil? uuid)
-				 nil
-				 (get-node db uuid)))))
+	"Get a node using its valid uuid"
+	[db uuid]
+	(cc/get-json db uuid))
 
-(defn all-nodes
-	"Returns all nodes with a particular ntype"
-	[db ntype]
-	(let [nodes (lookup-ntype db ntype)]
-		(map #(get-node db (val %))
-				 (dissoc nodes :gtype))))
-
-(defn merge-node!
-	"Merge the data of existing node identified by its uuid or eid+ntype with the supplied node-data"
-	([db uuid node-data]
-		(let [old-data (cc/get-json db uuid)
-					meta-old-data (dissoc old-data :data)
-					meta-node-data (dissoc node-data :data)]
-			(cc/set-json db uuid
-									 (assoc (merge meta-old-data
-																 meta-node-data)
-													:data
-													(merge (old-data :data)
-																 (node-data :data))))))
-	([db eid ntype node-data]
-	 (merge-node! db
-								(get-node-uuid db eid (cbkey ntype))
-								node-data)))
-
-(defn set-node!
-	"Update the existing node with supplied uuid or eid+ntype combo with the data supplied.
-	The data is not including the meta-data for the node, it will be merge with existing 'data'
-	part of the node"
-	([db uuid data]
-	 (merge-node! db uuid {:data data}))
-	([db ntype eid data]
-	 (set-node! db
-							(get-node-uuid db eid (cbkey ntype))
-							data)))
-
-(defn- add-node-rel!
-	"Add a specific rel-uuid into node's rel"
-	([db uuid rel-uuid]
-	 (let [node-rels ((get-node db uuid) :rels)]
-		 (merge-node! db 
-									uuid 
-									{:rel (set-conj node-rels rel-uuid)})))
-	([db eid ntype rel-uuid]
-	 (add-node-rel! db
-									(get-node-uuid db eid (cbkey ntype))
-									rel-uuid)))
+(defn get-rel
+	"Get a relation using its valid uuid"
+	[db uuid]
+	(cc/get-json db uuid))
 
 (defn- add-rel!
-	"The actual function to put the relation into the database, it's ignorant of what the data is,
-	the data should at least contain :start :end :rtype. It returns the new-uuid"
-	[db data]
-	(let [new-uuid (uuid)]
-		(do (cc/set-json db new-uuid
-										 (merge {:gtype "rel"
-														 :uuid new-uuid}
-														data))
-				new-uuid)))
+	[db rtype data]
+	(let [uuid (uuid)]
+		(do (add-rtype! db rtype)
+				(cc/set-json db uuid
+										 (merge data
+														{:$gtype "rel"
+														 :$rtype rtype
+														 :$uuid uuid}))
+				uuid)))
+
+(defn- assoc-rels
+	[db node-uuid rtype rel-uuid]
+	(let [node-rels (:rels (get-node db node-uuid))]
+		(merge node-rels
+					 {(cbkey rtype) (set-conj (vec ((cbkey rtype) node-rels))
+																		rel-uuid)})))
+
+(defn- set-rel!
+	[db node-uuid rtype rel-uuid]
+	(let [final-data (assoc-rels db node-uuid rtype rel-uuid)]
+		(assoc-doc! db node-uuid :rels final-data)))
+
+(defn- nodes-rel
+	[db start-uuid rtype end-uuid]
+	(let [node-doc (get-node db start-uuid)
+				node-rel-rtype ((cbkey rtype) (:rels node-doc))]
+		(if-let [rel (first (filter #(and (= (:$start %) start-uuid)
+																			(= (:$end %) end-uuid))
+																(map #(get-rel db %)
+																		 node-rel-rtype)))]
+						(:uuid rel)
+						false)))
+
+(defn- update-rel!
+	[db uuid data]
+	(merge-doc! db uuid data))
 
 (defn relate!
-	"add a relation between 2 nodes, each node is a map with mandatory key :uuid or combination of
-	:eid and :ntype"
-	[db start-node rel-type end-node & data]
-	(let [start-uuid (node-uuid db
-															{:uuid (start-node :uuid)
-															 :eid (start-node :eid)
-															 :ntype (start-node :ntype)})
-				end-uuid (node-uuid db
-														{:uuid (end-node :uuid)
-														 :eid (end-node :eid)
-														 :ntype (end-node :ntype)})
-
-				final-data (merge (first data)
-													{:start start-uuid
-													 :end end-uuid
-													 :gtype "rel"
-													 :rtype rel-type})
-				new-uuid (add-rel! db final-data)]
-		(do (add-node-rel! db
-											 start-uuid
-											 new-uuid)
-				(assoc final-data
-							 :uuid new-uuid))))
-
-(defn- clean-delete-node!
-	"The cleanup function when deleting a node, we need to unregister it in the lookup"
-	[db eid ntype]
-	(let [rels ((get-node db eid ntype) :rels)]
-		(do (if (empty? rels)
-						nil
-						(doseq [rel rels]
-									 (cc/delete db rel)))
-				(dissoc-doc! db (ntype-uuid db ntype) (cbkey eid)))))
-
-(defn delete-node!
-	"Delete a node, either by uuid or eid+ntype, also performs cleaning up the lookup data"
-	([db uuid]
-	 (let [data (cc/get-json db uuid)
-				 eid (data :eid)
-				 ntype (data :ntype)]
-		 (do (clean-delete-node! db eid ntype)
-				 (cc/delete db uuid)
-				 uuid)))
-	([db eid ntype]
-	 (let [uuid (get-node-uuid db eid ntype)]
-		 (do (clean-delete-node! db eid ntype)
-				 (cc/delete db uuid)
-				 uuid))))
+	"Relate start-node to end-node with a specific rtype type of relation, data is the property of
+	the relation, this function either add or update the relation between those two nodes.
+	start-node and end-node are maps with at least :uuid key exist in both. rtype can be an arbitrary
+	relation in string or keyword, either already exist in database or not."
+	[db start-node rtype end-node & data]
+	(let [start-uuid (:$uuid start-node)
+				end-uuid (:$uuid end-node)]
+		(if-let [rel (nodes-rel db start-uuid rtype end-uuid)]
+						(update-rel! db rel data)
+						(->> (add-rel! db rtype (merge (first data)
+																					 {:$start start-uuid
+																						:$end end-uuid}))
+								 (set-rel! db start-uuid rtype)))))
 
 
 
