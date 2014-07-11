@@ -6,13 +6,14 @@
 	[dbname exp]
 	(list 'cc/defclient dbname exp))
 
+(defn substring?
+	[sb st]
+	(.contains st sb))
+
 (defn uuid
   "Simple function to generate a string containing a newly generated uuid"
   []
   (str (java.util.UUID/randomUUID)))
-
-(defdb cb {:bucket "wallace"
-					 :uris ["http://127.0.0.1:8091/pools"]})
 
 (defn set-conj
 	"Performs set like behavior for vector conj to deal with json that do not have set datatype"
@@ -21,11 +22,15 @@
 			col 
 			(conj col elmt)))
 
+(declare create-index-lookup!)
+
 (defn create-graph!
 	"Function to initialise db, it creates meta data for the graph"
 	[db]
-	(and (cc/set-json db :ntype-lookup {:$gtype "meta"})
-			 (cc/set-json db :rtype-lookup {:$gtype "meta"})))
+	(do	(create-index-lookup! db :node-index-lookup)
+			(create-index-lookup! db :rel-index-lookup)
+			(and (cc/set-json db :ntype-lookup {:$gtype "meta"})
+			 		 (cc/set-json db :rtype-lookup {:$gtype "meta"}))))
 
 (defn cbkey
 	"A simple function that either accepts a string or otherwise and convert them into keyword"
@@ -43,6 +48,14 @@
 			(cc/get-json db :ntype-lookup)
 			(cc/get-json db :rtype-lookup)))
 
+(defn all-types
+	"Returns all types either ntype(s) and rtype(s)"
+	[db]
+	(concat (keys (dissoc (cc/get-json db :ntype-lookup)
+												:$gtype))
+					(keys (dissoc (cc/get-json db :rtype-lookup)
+												:$gtype))))
+
 (defn lookup-nodes
 	"Returns the lookup doc uuid for a particular ntype"
 	[db ntype]
@@ -59,7 +72,8 @@
 	(let [lookup ((cbkey ntype) (lookup-type db :node))]
 		(if (nil? lookup)
 				nil
-				(cc/get-json db (cbkey lookup)))))
+				(vals (dissoc (cc/get-json db (cbkey lookup))
+											:$gtype :$ntype)))))
 
 (defn all-rels
 	"Returns all the rels uuids for a particular rtype"
@@ -67,9 +81,11 @@
 	(let [lookup ((cbkey rtype) (lookup-type db :rel))]
 		(if (nil? lookup)
 				nil
-				(cc/get-json db (cbkey lookup)))))
+				(vals (dissoc (cc/get-json db (cbkey lookup))
+											:$gtype :$rtype)))))
 
-(defn- assoc-lookup!
+(defn assoc-lookup!
+	"Assoc the lookup doc with a new key-value pair, dbkey can be :node or :rel"
 	[db dbkey somekey somevalue]
 	(let [old-data (lookup-type db (cbkey dbkey))
 				dockey (if (= :node (cbkey dbkey))
@@ -83,7 +99,8 @@
 							 somekey
 							 somevalue))))
 
-(defn- assoc-doc!
+(defn assoc-doc!
+	"Assoc a pair of key-value to a doc specified by its dbkey"
 	[db dbkey somekey somevalue]
 	(let [old-doc (cc/get-json db (cbkey dbkey))]
 		(do (cc/set-json db (cbkey dbkey)
@@ -94,7 +111,8 @@
 							 somekey
 							 somevalue))))
 
-(defn- merge-doc!
+(defn merge-doc!
+	"Merge data into a doc in db with dbkey as its identifier"
 	[db dbkey data]
 	(let [old-doc (cc/get-json db (cbkey dbkey))]
 		(do (cc/set-json db
@@ -104,32 +122,37 @@
 				(merge old-doc
 							 data))))
 
-(defn- ntype?
+(defn ntype?
+	"Returns true if ntype exist in db, false when otherwise"
 	[db ntype]
 	(let [lookup (lookup-type db :node)]
 		(if (contains? lookup (cbkey ntype))
 				true
 				false)))
 
-(defn- add-ntype!
+(defn add-ntype!
+	"Add a new ntype into db"
 	[db ntype]
 	(if (ntype? db ntype)
 			{:status false :message "ntype already in database"}
 			(let [uuid (uuid)]
 				(do (cc/set-json db (cbkey uuid)
-												 {:$gtype "lookup"})
+												 {:$gtype "lookup"
+													:$ntype ntype})
 						(assoc-lookup! db :node (cbkey ntype) uuid)))))
 
-(defn- rtype?
+(defn rtype?
+	"Returns true if rtype exist in db, false if otherwise"
 	[db rtype]
 	(let [lookup (lookup-type db :rel)]
 		(if (contains? lookup (cbkey rtype))
 				true
 				false)))
 
-(defn- add-rtype!
+(defn add-rtype!
+	"Add a new rtype into db, rtype can be a string/number/keyword"
 	[db rtype]
-	(if (rtype? rtype)
+	(if (rtype? db rtype)
 			{:status false :message "rtype already in database"}
 			(let [uuid (uuid)]
 				(do (cc/set-json db uuid
@@ -137,8 +160,7 @@
 						(assoc-lookup! db :rel (cbkey rtype) uuid)))))
 
 (defn add-node!
-	"Add a node to the db with a specific ntype, data is optional, it would be the property of this node,
-	the data would be merged with meta data map (keywords of these meta-data prefixed with $ sign)"
+	"Add a new node with a given ntype and a given data as properties of the node"
 	[db ntype & data]
 	(let [uuid (uuid)
 				final-data (merge (first data)
@@ -146,15 +168,20 @@
 													 :$rels {}
 													 :$ntype ntype
 													 :$uuid uuid})]
-		(do (add-ntype! db ntype)
-				(assoc-doc! db
-										(lookup-nodes db :node)
-										(cbkey uuid)
-										uuid)
-				(cc/set-json db
+		(do (cc/set-json db
 										 (cbkey uuid)
 										 final-data)
+				(add-ntype! db (cbkey ntype))
+				(assoc-doc! db
+										(lookup-nodes db ntype)
+										(cbkey uuid)
+										uuid)
 				final-data)))
+
+(defn dissoc-meta
+	"Dissoc some meta keys from the doc, to get the actual users data"
+	[doc]
+	(dissoc doc :$gtype :$ntype :$rtype :$uuid :$rels))
 
 (defn get-node
 	"Get a node using its valid uuid"
@@ -166,7 +193,8 @@
 	[db uuid]
 	(cc/get-json db uuid))
 
-(defn- add-rel!
+(defn add-rel!
+	"Specifically create a rel doc into db, with data (a map) as rel properties merged with metas"
 	[db rtype data]
 	(let [uuid (uuid)]
 		(do (add-rtype! db rtype)
@@ -177,19 +205,22 @@
 														 :$uuid uuid}))
 				uuid)))
 
-(defn- assoc-rels
+(defn assoc-rels
+	"Assoc a newly created rel into the nodes' data"
 	[db node-uuid rtype rel-uuid]
 	(let [node-rels (:rels (get-node db node-uuid))]
 		(merge node-rels
 					 {(cbkey rtype) (set-conj (vec ((cbkey rtype) node-rels))
 																		rel-uuid)})))
 
-(defn- set-rel!
+(defn set-rel!
+	"Set the rel of a node with the rel-uuid"
 	[db node-uuid rtype rel-uuid]
 	(let [final-data (assoc-rels db node-uuid rtype rel-uuid)]
 		(assoc-doc! db node-uuid :rels final-data)))
 
-(defn- nodes-rel
+(defn get-node-rel
+	"Returns the uuid of a rel if there is a certain rtype relation between start-node and end-node"
 	[db start-uuid rtype end-uuid]
 	(let [node-doc (get-node db start-uuid)
 				node-rel-rtype ((cbkey rtype) (:rels node-doc))]
@@ -200,7 +231,8 @@
 						(:uuid rel)
 						false)))
 
-(defn- update-rel!
+(defn update-rel!
+	"Update the data of a rel with a specified uuid by merging the data into existing data"
 	[db uuid data]
 	(merge-doc! db uuid data))
 
@@ -212,12 +244,114 @@
 	[db start-node rtype end-node & data]
 	(let [start-uuid (:$uuid start-node)
 				end-uuid (:$uuid end-node)]
-		(if-let [rel (nodes-rel db start-uuid rtype end-uuid)]
+		(if-let [rel (get-node-rel db start-uuid rtype end-uuid)]
 						(update-rel! db rel data)
 						(->> (add-rel! db rtype (merge (first data)
 																					 {:$start start-uuid
 																						:$end end-uuid}))
 								 (set-rel! db start-uuid rtype)))))
+
+; Index lookup :node-index-lookup & :rel-index-lookup
+
+(defn create-index-lookup!
+	"Create a new index lookup, only used in the beginning of graph creation"
+	[db gtype]
+	(cc/set-json db gtype
+							 {:$gtype "meta"}))
+
+(defn type-indexed?
+	"Check whether or not a certain type already indexed in database, can check either for
+	ntype or rtype, gtype needs to be specified with either :node or :rel"
+	[db gtype nrtype]
+	(if (= :node (cbkey gtype))
+			(contains? (cc/get-json db :node-index-lookup)
+								 (cbkey nrtype))
+			(contains? (cc/get-json db :rel-index-lookup)
+								 (cbkey nrtype))))
+
+(defn key-indexed?
+	"Check whether certain key properties of node/rel already indexed"
+	[db gtype nrtype field-key]
+	(let [index-data (if (= :node (cbkey gtype))
+											 (cc/get-json db :node-index-lookup)
+											 (cc/get-json db :rel-index-lookup))]
+		(contains? ((cbkey nrtype) index-data)
+							 (cbkey field-key))))
+
+(defn get-index-lookup
+	"Get the index-lookup doc for a certain n/r-type"
+	[db gtype nrtype]
+	(let [nrkey (if (= :node (cbkey gtype))
+									:node-index-lookup
+									:rel-index-lookup)]
+		((cbkey nrtype) (cc/get-json db nrkey))))
+
+(defn create-type-index!
+	"Create a type index"
+	[db {:keys [$gtype $nrtype]}]
+	(if (type-indexed? db $gtype $nrtype)
+			{:status false :message "Type already indexed"}
+			(let [nrkey (if (= :node (cbkey $gtype))
+											:node-index-lookup
+											:rel-index-lookup)]
+				(assoc-doc! db nrkey
+										(cbkey $nrtype)
+										{}))))
+
+(defn create-key-index!
+	"Create a new index for a specific nrkey"
+	[db {:keys [$gtype $nrtype]} field-key]
+	(if (key-indexed? db $gtype $nrtype field-key)
+			{:status false :message "Key already indexed"}
+			(do (create-type-index! db $gtype $nrtype)
+					(let [uid (uuid)
+								nrkey (if (= :node (cbkey $gtype))
+													:node-index-lookup
+													:rel-index-lookup)
+								key-doc {:$gtype "index"
+												 :$key field-key
+												 :$uuid uuid}
+								old-data (get-index-lookup db $gtype $nrtype)]
+						(do (cc/set-json db uuid
+														 key-doc)
+								(assoc-doc! db nrkey
+														(cbkey $nrtype)
+														(assoc old-data
+																	 (cbkey $nrtype)
+																	 uuid)))))))
+
+; FIXME I dont know what is this actually
+
+(defn get-key-index
+	[db doc field-key]
+	(let [{:keys [$gtype $ntype $rtype]} doc
+				lookup (get-index-lookup db $gtype (if (= :node (cbkey $gtype))
+																						 	 $ntype
+																							 $rtype))]
+		nil))
+
+; FIXME This is also a messed up function
+
+(defn index-node-key
+	"Assoc a new index key into the existing (or newly created) index doc for a particular nrtype"
+	[db nrkey doc pair]
+	(let [{:keys [$gtype $ntype $uuid]} doc]
+		(do (create-key-index! db $gtype $ntype (cbkey (key pair)))
+				(let [old-data (get-key-index db)]))))
+
+; TODO define this more clearly
+
+(defn index-doc
+	"FIXME I dont know what this is"
+	[db doc]
+	(let [{:keys [$gtype $ntype $rtype $uuid]} doc]
+		(if (= :node (cbkey $gtype))
+				(let [nrkey :node-index-lookup]
+					(doseq [pair doc]
+						(index-node-key db nrkey doc pair)))
+				(let [nrkey :rel-index-lookup]))))
+
+
 
 
 
