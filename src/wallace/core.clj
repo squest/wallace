@@ -78,8 +78,9 @@
 (defn all-rels
 	"Returns all the rels uuids for a particular rtype"
 	[db rtype]
-	(let [lookup ((cbkey rtype) (lookup-type db :rel))]
-		(if (nil? lookup)
+	(let [lookup (lookup-rels db (cbkey rtype))]
+		(if (or (empty? lookup)
+						(nil? lookup))
 				nil
 				(vals (dissoc (cc/get-json db (cbkey lookup))
 											:$gtype :$rtype)))))
@@ -221,15 +222,25 @@
 
 (defn get-node-rel
 	"Returns the uuid of a rel if there is a certain rtype relation between start-node and end-node"
-	[db start-uuid rtype end-uuid]
-	(let [node-doc (get-node db start-uuid)
-				node-rel-rtype ((cbkey rtype) (:rels node-doc))]
-		(if-let [rel (first (filter #(and (= (:$start %) start-uuid)
-																			(= (:$end %) end-uuid))
-																(map #(get-rel db %)
-																		 node-rel-rtype)))]
-						(:uuid rel)
-						false)))
+	[db start-node rtype end-node]
+	(let [node-doc (get-node db (:$uuid start-node))
+				node-rel-rtype ((cbkey rtype) (:rels node-doc))
+				rel (first (filter #(and (= (:$start %) (:$uuid start-node))
+																 (= (:$end %) (:$uuid end-node)))
+													 (map #(get-rel db %)
+																node-rel-rtype)))]
+		(if (or (nil? rel)
+						(empty? rel))
+				false
+				(:$uuid rel))))
+
+(defn all-nodes-rels
+	"Get all relations possessed by a particular node, node can be a node uuid or a complete node"
+	[db node]
+	(let [nd (if (string? node)
+							 node
+						 (:$uuid node))]
+			 (:rels (get-node db nd))))
 
 (defn update-rel!
 	"Update the data of a rel with a specified uuid by merging the data into existing data"
@@ -244,7 +255,7 @@
 	[db start-node rtype end-node & data]
 	(let [start-uuid (:$uuid start-node)
 				end-uuid (:$uuid end-node)]
-		(if-let [rel (get-node-rel db start-uuid rtype end-uuid)]
+		(if-let [rel (get-node-rel db start-node rtype end-node)]
 						(update-rel! db rel data)
 						(->> (add-rel! db rtype (merge (first data)
 																					 {:$start start-uuid

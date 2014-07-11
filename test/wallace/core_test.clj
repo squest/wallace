@@ -112,7 +112,7 @@
 (expect true
 				(rtype? cb :test-rtype-01))
 
-(expect (into #{} [:test-node :test-ntype-02 :test-rtype-01])
+(expect (into #{} [:test-node :test-ntype-02 :test-rtype-01 :test-rel-01])
 				(into #{} (all-types cb)))
 
 (expect (into #{} [:test-node :test-ntype-02])
@@ -131,7 +131,11 @@
 (def second-node (second (all-nodes cb :test-node)))
 
 (expect (dissoc-meta (get-node cb first-node))
-				{:name "joni"})
+				(merge {:name "joni"}
+							 (get-node-rel cb
+														 (get-node cb first-node)
+														 :test-rel-01
+														 (get-node cb second-node))))
 
 (expect [{:name "joni"}
 				 {:name "joni"}]
@@ -139,10 +143,7 @@
 						 (map #(get-node cb %)
 									(all-nodes cb :test-node))))
 
-(expect {:name "this"}
-				(all-types cb))
-
-(expect {:name "tjat"}
+(expect nil
 				(all-rels cb :test-rtype-01))
 
 (def lookup-rels-1 (lookup-rels cb :test-rtype-01))
@@ -150,8 +151,53 @@
 (expect true
 				(string? lookup-rels-1))
 
-(expect false
+(expect {:$gtype "lookup"}
 				(cc/get-json cb lookup-rels-1))
+
+(expect {:name "this" :jojon 123}
+				(dissoc-meta (merge {:name "this" :jojon 123}
+														{:$gtype "asd" :$ntype "well"})))
+
+(expect []
+				(filter #(zero? (first %))
+								nil))
+
+(expect []
+				(map first nil))
+
+(expect false
+				(empty? (all-rels cb :test-rel-01)))
+
+(expect true
+				(coll? (all-rels cb :test-rel-01)))
+
+(expect (uuid)
+				(first (all-rels cb :test-rel-01)))
+
+(expect false
+				(let [this (lookup-type cb :node)]
+					(and (nil? this)
+							 (empty? this))))
+
+(expect String
+				(from-each [a (all-nodes cb :test-node-02)]
+									 a))
+
+(expect String
+				(from-each [a (all-rels cb :test-rel-01)]
+									 a))
+
+(expect (more not-empty map?)
+				(dissoc-meta (lookup-type cb :rel)))
+
+(expect (more not-empty map?)
+				(lookup-type cb :rel))
+
+
+
+
+
+
 
 
 
