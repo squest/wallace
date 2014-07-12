@@ -203,12 +203,12 @@
 (defn get-node
 	"Get a node using its valid uuid"
 	[db uuid]
-	(cc/get-json db uuid))
+	(cc/get-json db (get-uuid uuid)))
 
 (defn get-rel
 	"Get a relation using its valid uuid"
 	[db uuid]
-	(cc/get-json db uuid))
+	(cc/get-json db (get-uuid uuid)))
 
 (defn add-rel!
 	"Specifically create a rel doc into db, with data (a map) as rel properties merged with metas"
@@ -287,9 +287,14 @@
 
 (defn all-nodes-rels
 	"Get all relations possessed by a particular node, node can be a node uuid or a complete node"
-	[db node]
-	(let [nd (get-uuid node)]
-			 (:$rels (get-node db nd))))
+	[db node & rtype]
+	(let [nd (get-uuid node)
+				rels (:$rels (get-node db nd))]
+			 (if (empty? rtype)
+					 rels
+				 	 (apply hash-map
+									(mapcat #(list % (% rels))
+													rtype)))))
 
 
 ; Index lookup :node-index-lookup & :rel-index-lookup

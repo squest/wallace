@@ -197,7 +197,7 @@
 
 (def persons (all-nodes cb :test-person))
 
-(expect 2
+(expect 3
 				(count persons))
 
 (expect 36
@@ -221,10 +221,69 @@
 								(nil? rels)))
 
 (expect-let [node-doc (get-node cb (first persons))
-						 node-rels ((cbkey :test-like-1) (:$rels node-doc))]
+						 node-rels ((cbkey :test-like) (:$rels node-doc))]
 						false
 						(or (empty? node-rels)
 								(nil? node-rels)))
+
+(expect-let [count-rel (vals (all-nodes-rels cb (first persons)))
+						 real-count (reduce + (map count count-rel))
+						 uuid (str "test" (uuid))]
+						(inc real-count)
+						(do (relate! cb
+												 (first persons)
+												 (cbkey uuid)
+												 (second persons)
+												 {:whatever "they call me"})
+								(->> (all-nodes-rels cb (first persons))
+										 vals
+										 (map count)
+										 (reduce +))))
+
+(expect-let [count-rel (vals (all-nodes-rels cb (first persons)))
+						 real-count (reduce + (map count count-rel))
+						 uuid (str "test" (uuid))]
+						(inc real-count)
+						(do (relate! cb
+												 (first persons)
+												 (cbkey uuid)
+												 (nth persons 2)
+												 {:whatever "they call me"})
+								(->> (all-nodes-rels cb (first persons))
+										 vals
+										 (map count)
+										 (reduce +))))
+
+(expect-let [count-rel (vals (all-nodes-rels cb (first persons) :test-like-4))
+						 real-count (reduce + (map count count-rel))]
+						(inc real-count)
+						(do (relate! cb
+												 (first persons)
+												 :test-like-4
+												 (second persons)
+												 {:whatever "they call me"})
+								(->> (all-nodes-rels cb (first persons) :test-like-4)
+										 vals
+										 (map count)
+										 (reduce +))))
+
+(expect-let [count-rel (vals (:$rels (get-node cb (first persons))))
+						 real-count (reduce + (map count count-rel))
+						 uuid (str "test" (uuid))]
+						(inc real-count)
+						(do (relate! cb
+												 (first persons)
+												 (cbkey uuid)
+												 (second persons)
+												 {:whatever "they call me"})
+								(->> (all-nodes-rels cb (first persons))
+										 vals
+										 (map count)
+										 (reduce +))))
+
+
+
+
 
 
 
