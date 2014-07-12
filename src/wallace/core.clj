@@ -10,6 +10,7 @@
 	[sb st]
 	(.contains st sb))
 
+
 (defn uuid
   "Simple function to generate a string containing a newly generated uuid"
   []
@@ -40,6 +41,14 @@
 			(if (string? st)
 					(keyword st)
 					(keyword (str st)))))
+
+(defn get-uuid
+	"Returns the uuid string of a node/rel doc, if it's already a uuid string then simply pass it"
+	[doc-or-uuid]
+	(if (or (keyword? doc-or-uuid)
+					(string? doc-or-uuid))
+			doc-or-uuid
+			(:$uuid doc-or-uuid)))
 
 (defn lookup-type
 	"returns the one of two lookup, gtype either :node or :rel"
@@ -102,8 +111,9 @@
 
 (defn assoc-doc!
 	"Assoc a pair of key-value to a doc specified by its dbkey"
-	[db dbkey somekey somevalue]
-	(let [old-doc (cc/get-json db (cbkey dbkey))]
+	[db nrdoc-or-uuid somekey somevalue]
+	(let [dbkey (get-uuid nrdoc-or-uuid)
+				old-doc (cc/get-json db (cbkey dbkey))]
 		(do (cc/set-json db (cbkey dbkey)
 										 (assoc old-doc
 										  			 somekey
@@ -114,8 +124,9 @@
 
 (defn merge-doc!
 	"Merge data into a doc in db with dbkey as its identifier"
-	[db dbkey data]
-	(let [old-doc (cc/get-json db (cbkey dbkey))]
+	[db nrdoc-or-uuid data]
+	(let [dbkey (get-uuid nrdoc-or-uuid)
+				old-doc (cc/get-json db (cbkey dbkey))]
 		(do (cc/set-json db
 										 (cbkey dbkey)
 										 (merge old-doc
@@ -160,6 +171,14 @@
 												 {:$gtype "lookup"})
 						(assoc-lookup! db :rel (cbkey rtype) uuid)))))
 
+(defn register-node!
+	[db ntype node-or-uuid]
+	(let [node (get-uuid node-or-uuid)]
+			 (assoc-doc! db
+									 (lookup-nodes db ntype)
+									 (cbkey node)
+									 node)))
+
 (defn add-node!
 	"Add a new node with a given ntype and a given data as properties of the node"
 	[db ntype & data]
@@ -173,10 +192,7 @@
 										 (cbkey uuid)
 										 final-data)
 				(add-ntype! db (cbkey ntype))
-				(assoc-doc! db
-										(lookup-nodes db ntype)
-										(cbkey uuid)
-										uuid)
+				(register-node! db ntype uuid)
 				final-data)))
 
 (defn dissoc-meta
@@ -208,44 +224,48 @@
 
 (defn assoc-rels
 	"Assoc a newly created rel into the nodes' data"
-	[db node-uuid rtype rel-uuid]
-	(let [node-rels (:rels (get-node db node-uuid))]
+	[db node rtype rel]
+	(let [nd (get-uuid node)
+				rl (get-uuid rel)
+				node-rels (:$rels (get-node db nd))]
 		(merge node-rels
 					 {(cbkey rtype) (set-conj (vec ((cbkey rtype) node-rels))
-																		rel-uuid)})))
+																		rl)})))
 
 (defn set-rel!
 	"Set the rel of a node with the rel-uuid"
-	[db node-uuid rtype rel-uuid]
-	(let [final-data (assoc-rels db node-uuid rtype rel-uuid)]
-		(assoc-doc! db node-uuid :rels final-data)))
+	[db node rtype rel]
+	(let [nd (get-uuid node)
+				rl (get-uuid rel)
+				final-data (assoc-rels db nd rtype rl)]
+		(assoc-doc! db nd :$rels final-data)))
+
+(defn register-rel!
+	[db rtype rel-or-uuid]
+	(let [rel (get-uuid rel-or-uuid)]
+			 (assoc-doc! db
+									 (lookup-rels db rtype)
+									 (cbkey rel)
+									 rel)))
 
 (defn get-node-rel
 	"Returns the uuid of a rel if there is a certain rtype relation between start-node and end-node"
 	[db start-node rtype end-node]
-	(let [node-doc (get-node db (:$uuid start-node))
-				node-rel-rtype ((cbkey rtype) (:rels node-doc))
-				rel (first (filter #(and (= (:$start %) (:$uuid start-node))
-																 (= (:$end %) (:$uuid end-node)))
+	(let [node-doc (get-node db (get-uuid start-node))
+				node-rel-rtype ((cbkey rtype) (:$rels node-doc))
+				rel (first (filter #(and (= (:$start %) (get-uuid start-node))
+																 (= (:$end %) (get-uuid end-node)))
 													 (map #(get-rel db %)
 																node-rel-rtype)))]
 		(if (or (nil? rel)
 						(empty? rel))
-				false
-				(:$uuid rel))))
-
-(defn all-nodes-rels
-	"Get all relations possessed by a particular node, node can be a node uuid or a complete node"
-	[db node]
-	(let [nd (if (string? node)
-							 node
-						 (:$uuid node))]
-			 (:rels (get-node db nd))))
+				nil
+				(get-uuid rel))))
 
 (defn update-rel!
 	"Update the data of a rel with a specified uuid by merging the data into existing data"
-	[db uuid data]
-	(merge-doc! db uuid data))
+	[db rel-or-uuid data]
+	(merge-doc! db rel-or-uuid data))
 
 (defn relate!
 	"Relate start-node to end-node with a specific rtype type of relation, data is the property of
@@ -253,14 +273,24 @@
 	start-node and end-node are maps with at least :uuid key exist in both. rtype can be an arbitrary
 	relation in string or keyword, either already exist in database or not."
 	[db start-node rtype end-node & data]
-	(let [start-uuid (:$uuid start-node)
-				end-uuid (:$uuid end-node)]
-		(if-let [rel (get-node-rel db start-node rtype end-node)]
-						(update-rel! db rel data)
-						(->> (add-rel! db rtype (merge (first data)
-																					 {:$start start-uuid
-																						:$end end-uuid}))
-								 (set-rel! db start-uuid rtype)))))
+	(let [start-uuid (get-uuid start-node)
+				end-uuid (get-uuid end-node)
+				rel (get-node-rel db start-node rtype end-node)]
+		(if (or (empty? rel)
+						(nil? rel))
+				(->> (add-rel! db rtype (merge (first data)
+																			 {:$start start-uuid
+																				:$end end-uuid}))
+						 (set-rel! db start-uuid rtype)
+						 (register-rel! db rtype))
+				(update-rel! db rel data))))
+
+(defn all-nodes-rels
+	"Get all relations possessed by a particular node, node can be a node uuid or a complete node"
+	[db node]
+	(let [nd (get-uuid node)]
+			 (:$rels (get-node db nd))))
+
 
 ; Index lookup :node-index-lookup & :rel-index-lookup
 
@@ -297,6 +327,7 @@
 									:rel-index-lookup)]
 		((cbkey nrtype) (cc/get-json db nrkey))))
 
+; FIXME I'M STILL BROKEN
 (defn create-type-index!
 	"Create a type index"
 	[db {:keys [$gtype $nrtype]}]
@@ -361,6 +392,7 @@
 					(doseq [pair doc]
 						(index-node-key db nrkey doc pair)))
 				(let [nrkey :rel-index-lookup]))))
+
 
 
 

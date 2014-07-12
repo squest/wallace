@@ -1,7 +1,8 @@
 (ns wallace.core-test
   (:require [expectations :refer :all]
 						[couchbase-clj.client :as cc]
-            [wallace.core :refer :all]))
+            [wallace.core :refer :all]
+						[clojure.set :as cs]))
 
 (defdb cb {:bucket "wallace"
 					 :uris ["http://127.0.0.1:8091/pools"]})
@@ -112,13 +113,14 @@
 (expect true
 				(rtype? cb :test-rtype-01))
 
-(expect (into #{} [:test-node :test-ntype-02 :test-rtype-01 :test-rel-01])
-				(into #{} (all-types cb)))
+(expect keyword?
+				(from-each [a (all-types cb)]
+									 a))
 
-(expect (into #{} [:test-node :test-ntype-02])
-				(into #{}
-							(keys (dissoc (lookup-type cb :node)
-														:$gtype))))
+(expect keyword?
+				(from-each [a (keys (dissoc (lookup-type cb :node)
+																		:$gtype))]
+									 a))
 
 (def uuid-test "342hk234h5l4k5hh45jh45")
 
@@ -165,14 +167,14 @@
 (expect []
 				(map first nil))
 
-(expect false
-				(empty? (all-rels cb :test-rel-01)))
+(expect empty?
+				(all-rels cb :test-rel-01))
 
-(expect true
-				(coll? (all-rels cb :test-rel-01)))
+(expect coll?
+				(all-rels cb :test-like-1))
 
-(expect (uuid)
-				(first (all-rels cb :test-rel-01)))
+(expect string?
+				(first (all-rels cb :test-like-1)))
 
 (expect false
 				(let [this (lookup-type cb :node)]
@@ -192,6 +194,50 @@
 
 (expect (more not-empty map?)
 				(lookup-type cb :rel))
+
+(def persons (all-nodes cb :test-person))
+
+(expect 2
+				(count persons))
+
+(expect 36
+				(from-each [person persons]
+									 (count person)))
+
+(expect map?
+				(from-each [person persons]
+									 (get-node cb person)))
+
+(expect (more #(contains? % :$ntype))
+				(from-each [person persons]
+									 (get-node cb person)))
+
+(expect :$rels
+				(in (into #{} (keys (get-node cb (get-uuid (first persons)))))))
+
+(expect-let [rels (:$rels (get-node cb (get-uuid (first persons))))]
+						false
+						(or (empty? rels)
+								(nil? rels)))
+
+(expect-let [node-doc (get-node cb (first persons))
+						 node-rels ((cbkey :test-like-1) (:$rels node-doc))]
+						false
+						(or (empty? node-rels)
+								(nil? node-rels)))
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
