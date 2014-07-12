@@ -254,15 +254,16 @@
 										 (map count)
 										 (reduce +))))
 
-(expect-let [count-rel (vals (all-nodes-rels cb (first persons) :test-like-4))
-						 real-count (reduce + (map count count-rel))]
+(expect-let [count-rel (vals (all-nodes-rels cb (first persons) :test-like-5))
+						 real-count (reduce + (map count count-rel))
+						 new-node (add-node! cb :test-beer {:brand "markonda"})]
 						(inc real-count)
 						(do (relate! cb
 												 (first persons)
-												 :test-like-4
-												 (second persons)
+												 :test-like-5
+												 new-node
 												 {:whatever "they call me"})
-								(->> (all-nodes-rels cb (first persons) :test-like-4)
+								(->> (all-nodes-rels cb (first persons) :test-like-5)
 										 vals
 										 (map count)
 										 (reduce +))))
@@ -280,6 +281,25 @@
 										 vals
 										 (map count)
 										 (reduce +))))
+
+(expect 36
+				(count (get-node-rel cb
+														 (first persons)
+														 :test-like-4
+														 (second persons))))
+
+(expect-let [new-stuff (cbkey (str "Test" (uuid)))
+						 new-rel (relate! cb
+															(first persons)
+															:test-like-4
+															(second persons)
+															{new-stuff  "whatever"})]
+						new-stuff
+						(in (keys (->> (get-node-rel cb
+																				 (first persons)
+																				 :test-like-4
+																				 (second persons))
+													 (get-rel cb)))))
 
 
 

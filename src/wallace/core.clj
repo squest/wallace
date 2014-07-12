@@ -283,7 +283,7 @@
 																				:$end end-uuid}))
 						 (set-rel! db start-uuid rtype)
 						 (register-rel! db rtype))
-				(update-rel! db rel data))))
+				(update-rel! db rel (first data)))))
 
 (defn all-nodes-rels
 	"Get all relations possessed by a particular node, node can be a node uuid or a complete node"
