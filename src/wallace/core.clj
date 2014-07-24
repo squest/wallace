@@ -7,6 +7,7 @@
 	(list 'cc/defclient dbname exp))
 
 (defn substring?
+	"Returns true if sb is a substring of st, false if otherwise"
 	[sb st]
 	(.contains st sb))
 
@@ -17,7 +18,8 @@
   (str (java.util.UUID/randomUUID)))
 
 (defn set-conj
-	"Performs set like behavior for vector conj to deal with json that do not have set datatype"
+	"Performs set like behavior for vector conj to deal with json that do not have set datatype, accepts a list/vector
+	and returns the same type"
 	[col elmt]
 	(if (some #(= elmt %) col)
 			col 
@@ -26,7 +28,7 @@
 (declare create-index-lookup!)
 
 (defn create-graph!
-	"Function to initialise db, it creates meta data for the graph"
+	"Function to initialise db, it creates meta data doc in the database for managing lookups for the graph"
 	[db]
 	(do	(create-index-lookup! db :node-index-lookup)
 			(create-index-lookup! db :rel-index-lookup)
@@ -34,7 +36,7 @@
 			 		 (cc/set-json db :rtype-lookup {:$gtype "meta"}))))
 
 (defn cbkey
-	"A simple function that either accepts a string or otherwise and convert them into keyword"
+	"A simple function that either accepts a string or otherwise and convert them into keyword, returns a keyword"
 	[st]
 	(if (keyword? st)
 			st
@@ -43,7 +45,8 @@
 					(keyword (str st)))))
 
 (defn get-uuid
-	"Returns the uuid string of a node/rel doc, if it's already a uuid string then simply pass it"
+	"Returns the uuid string of a node/rel doc, if it's already a uuid string then simply pass it, the doc-or-uuid can
+	be a valid node/rel map with :$uuid exists in the map or a string/keyword of 36chars uuid"
 	[doc-or-uuid]
 	(if (or (keyword? doc-or-uuid)
 					(string? doc-or-uuid))
@@ -51,7 +54,8 @@
 			(:$uuid doc-or-uuid)))
 
 (defn lookup-type
-	"returns the one of two lookup, gtype either :node or :rel"
+	"returns the one of two lookup, gtype either :node or :rel, it returns a map obtained from database containing
+	a list of key-value pairs that serves as reference to uuids of docs containing each ntype/rtype"
 	[db gtype]
 	(if (= :node (cbkey gtype))
 			(cc/get-json db :ntype-lookup)
@@ -296,8 +300,7 @@
 									(mapcat #(list % (% rels))
 													rtype)))))
 
-
-; Index lookup :node-index-lookup & :rel-index-lookup
+; TODO Indexing system for fast search, should we create a separate namespace for indexing feature?
 
 (defn create-index-lookup!
 	"Create a new index lookup, only used in the beginning of graph creation"
@@ -324,7 +327,7 @@
 		(contains? ((cbkey nrtype) index-data)
 							 (cbkey field-key))))
 
-(defn get-index-lookup
+(defn type-index-lookup
 	"Get the index-lookup doc for a certain n/r-type"
 	[db gtype nrtype]
 	(let [nrkey (if (= :node (cbkey gtype))
@@ -341,7 +344,8 @@
 			(let [nrkey (if (= :node (cbkey $gtype))
 											:node-index-lookup
 											:rel-index-lookup)]
-				(assoc-doc! db nrkey
+				(assoc-doc! db
+										nrkey
 										(cbkey $nrtype)
 										{}))))
 
@@ -351,17 +355,19 @@
 	(if (key-indexed? db $gtype $nrtype field-key)
 			{:status false :message "Key already indexed"}
 			(do (create-type-index! db $gtype $nrtype)
-					(let [uid (uuid)
+					(let [uuid (uuid)
 								nrkey (if (= :node (cbkey $gtype))
 													:node-index-lookup
 													:rel-index-lookup)
 								key-doc {:$gtype "index"
 												 :$key field-key
 												 :$uuid uuid}
-								old-data (get-index-lookup db $gtype $nrtype)]
-						(do (cc/set-json db uuid
+								old-data (type-index-lookup db $gtype $nrtype)]
+						(do (cc/set-json db
+														 uuid
 														 key-doc)
-								(assoc-doc! db nrkey
+								(assoc-doc! db
+														nrkey
 														(cbkey $nrtype)
 														(assoc old-data
 																	 (cbkey $nrtype)
@@ -372,7 +378,7 @@
 (defn get-key-index
 	[db doc field-key]
 	(let [{:keys [$gtype $ntype $rtype]} doc
-				lookup (get-index-lookup db $gtype (if (= :node (cbkey $gtype))
+				lookup (type-index-lookup db $gtype (if (= :node (cbkey $gtype))
 																						 	 $ntype
 																							 $rtype))]
 		nil))

@@ -2,6 +2,7 @@
   (:require [expectations :refer :all]
 						[couchbase-clj.client :as cc]
             [wallace.core :refer :all]
+						[wallace.traverse :refer :all]
 						[clojure.set :as cs]))
 
 (defdb cb {:bucket "wallace"
@@ -10,16 +11,16 @@
 (expect [1 2 3 4]
 				(set-conj [1 2 3] 4))
 
-(expect true 
+(expect true
 				(substring? "jon" "jojon"))
 
-(expect false 
+(expect false
 				(substring? "jo" "snow"))
 
-(expect false 
+(expect false
 				(substring? "jo" "JOJON"))
 
-(expect true 
+(expect true
 				(substring? (.toUpperCase "jo")
 										"JOJON"))
 
